@@ -455,7 +455,7 @@ iface = gr.Blocks()
 
 with iface:
     native_language_input = gr.Dropdown(choices=['en'], label='Native Language', value='en')
-    target_language_input = gr.Dropdown(choices=['es', 'it'], label='Target Language')
+    target_language_input = gr.Dropdown(choices=['es'], label='Target Language')
     level_input = gr.Dropdown(choices=['A1', 'A2', 'B1', 'B2', 'C1', 'C2'], label='Level')
     text_input = gr.Textbox(label='Text', lines=10)
     start_button = gr.Button('Start')

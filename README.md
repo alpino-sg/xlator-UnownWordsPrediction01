@@ -23,7 +23,7 @@ To run this prototype, several dependencies need to be installed, including `gra
 pip install gradio stanza deep-translator nltk wordfreq rapidfuzz pandas
 ```
 
-The app can be deployed in [Hugging Face Spaces](https://huggingface.co/spaces/AiManatee/language_learning_app_prototype) or run locally using a Google Colab notebook with a Gradio interface.
+The app can be deployed in [Hugging Face Spaces](https://huggingface.co/spaces/Sharing/language_learning_app_prototype) or run locally using a Google Colab notebook with a Gradio interface.
 
 ## Usage
 

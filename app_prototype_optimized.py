@@ -12,7 +12,7 @@ import pandas as pd
 import re
 import time
 
-# Initialize Stanza pipelines with specific components
+# Initialize Stanza pipelines (only once) with specific components
 stanza.download('en')
 stanza.download('es')
 nlp_native = stanza.Pipeline('en', processors='tokenize,lemma,pos')
@@ -21,35 +21,14 @@ nlp_target = stanza.Pipeline('es', processors='tokenize,lemma,pos,ner')
 # Initialize the Snowball Stemmer
 stemmer = SnowballStemmer("spanish")
 
-# Load the TSV file into a DataFrame, skipping bad lines
+# Load the TSV file into a DataFrame, skipping bad lines and using the Python engine
 cognet_df = pd.read_csv('CogNet-v2.0.tsv', sep='\t', header=None,
                         names=['concept_id', 'lang1', 'word1', 'lang2', 'word2', 'translit1', 'translit2'],
-                        on_bad_lines='skip')
+                        on_bad_lines='skip', engine='python')
 
 # Filter for Spanish-English cognates
 cognet_sp_en = cognet_df[((cognet_df['lang1'] == 'spa') & (cognet_df['lang2'] == 'eng')) |
                          ((cognet_df['lang1'] == 'eng') & (cognet_df['lang2'] == 'spa'))]
-
-# Variables to hold state
-state = {
-    'paragraphs': [],
-    'current_paragraph_index': 0,
-    'known_words': [],
-    'unknown_words': [],
-    'validated_translations': [],
-    'word_count': defaultdict(int),
-    'all_final_unknown_words': [],
-    'all_cognate_pairs': {},
-    'final_unknown_words_dict': defaultdict(set),
-    'original_word_mapping': {},
-    'native_language': '',
-    'target_language': '',
-    'level': '',
-    'final_unknown_word_counts': defaultdict(int),
-    'nlp_cache': {},
-    'frequency_cache': {},
-    'ner_cache': {}
-}
 
 frequency_thresholds = {
     'A1': 0.0001,       
@@ -85,8 +64,11 @@ def initialize_variables():
         'merged_paragraphs': []
     }
 
+# Initialize state for the first time
+initialize_variables()
+
 # Function to identify cognates
-def find_cognates(spanish_words, english_words, cognet_df, similarity_threshold=0.6):
+def find_cognates(spanish_words, english_words, cognet_df, similarity_threshold=60):
     cognates = []
     spanish_words_lower = [sp_word.lower() for sp_word in spanish_words]
     english_words_lower = [en_word.lower() for en_word in english_words]
@@ -102,20 +84,24 @@ def find_cognates(spanish_words, english_words, cognet_df, similarity_threshold=
             else:
                 continue
             similarity = fuzz.ratio(sp_word, en_word.lower())
-            if similarity >= similarity_threshold * 100:
+            if similarity >= similarity_threshold:
                 cognates.append((sp_word, en_word))
     
-    # Check for lemma-based cognates
+    # Indentify lemma-based cognates
     for sp_word in spanish_words:
         sp_features = state['nlp_cache'].get(sp_word, {})
         for en_word in english_words:
             en_features = state['nlp_cache'].get(en_word, {})
-            if sp_features and en_features and sp_features['lemma'] == en_features['lemma']:
+            # Check similarity
+            similarity = fuzz.ratio(sp_word.lower(), en_word.lower())
+            if similarity >= similarity_threshold:
+                cognates.append((sp_word, en_word))
+            elif sp_features and en_features and sp_features['lemma'] == en_features['lemma']:
                 cognates.append((sp_word, en_word))
     
     return cognates
 
-# Safely translate a sentence with retry logic
+# Safely translate a sentence
 def safe_translate(sentences, src, dest, retries=3):
     translations = []
     for sentence in sentences:
@@ -178,7 +164,7 @@ def batch_preprocess_text(paragraphs, nlp, target_language, use_cache=True):
     words = []
     for sentence in doc.sentences:
         for word in sentence.words:
-            if len(word.text) > 1:
+            if len(word.text) > 1:  # Ensure we are processing only whole words
                 if word.text in state['frequency_cache']:
                     frequency = state['frequency_cache'][word.text]
                 else:
@@ -193,6 +179,7 @@ def batch_preprocess_text(paragraphs, nlp, target_language, use_cache=True):
                 }
                 words.append(word_features)
                 state['nlp_cache'][word.text.lower()] = word_features
+                print(f"Added to cache: {word_features}")  # Logging cache addition
 
     if use_cache:
         state['nlp_cache'][batch_text] = (sentences, words)
@@ -211,32 +198,51 @@ def perform_ner(text, nlp):
 # Validate translation with context
 def validate_translation_in_context(translation, original_sentences, translated_sentences, spanish_pos):
     for orig_sent, trans_sent in zip(original_sentences, translated_sentences):
-        doc = state['nlp_cache'].get(trans_sent, nlp_native(trans_sent))
-        orig_doc = state['nlp_cache'].get(orig_sent, nlp_target(orig_sent))
-
-        if trans_sent not in state['nlp_cache']:
+        if trans_sent in state['nlp_cache']:
+            doc = state['nlp_cache'][trans_sent]
+        else:
+            doc = nlp_native(trans_sent)
             state['nlp_cache'][trans_sent] = doc
-        if orig_sent not in state['nlp_cache']:
+
+        if isinstance(doc, tuple):
+            doc = doc[1]  
+
+        if orig_sent in state['nlp_cache']:
+            orig_doc = state['nlp_cache'][orig_sent]
+        else:
+            orig_doc = nlp_target(orig_sent)
             state['nlp_cache'][orig_sent] = orig_doc
 
+        if isinstance(orig_doc, tuple):
+            orig_doc = orig_doc[1]  
+
+        # Initial Check: Direct match
         for word in doc.sentences[0].words:
             if word.text.lower() == translation.lower():
                 return word.text
 
+        # Similarity Check: Find the most similar word
         words_in_trans_sent = [word.text for word in doc.sentences[0].words]
         most_similar = process.extractOne(translation, words_in_trans_sent, scorer=fuzz.ratio, score_cutoff=80)
+        similar_enough = process.extractOne(translation, words_in_trans_sent, scorer=fuzz.ratio, score_cutoff=70)
         if most_similar:
             similar_word = most_similar[0]
             for word in doc.sentences[0].words:
                 if word.text == similar_word:
-                    return f"{translation}/{similar_word}"
-        
+                    return f"{translation}/{similar_word}"  # Return both the individual translation and the most similar word with the same POS tag
+        if similar_enough:
+            similar_enough_word = similar_enough[0]
+            for word in doc.sentences[0].words:
+                if word.text == similar_enough_word and word.upos == spanish_pos:
+                    return f"{translation}/{similar_enough_word}"
+        # POS Tag Check: Find a word with the same POS tag as the Spanish word
         pos_matches = [word.text for word in doc.sentences[0].words if word.upos == spanish_pos]
         if len(pos_matches) == 1:
-            return f"{translation}/{pos_matches[0]}"
+            return f"{translation}/{pos_matches[0]}"  # Return both the individual translation and the POS matching word if there's only one match
         elif len(pos_matches) > 1:
-            return translation
+            return translation  # Stick to the individual translation if multiple POS matches are found
 
+    # If no word with the same POS tag is found
     return translation
 
 # Profile Decorator
@@ -265,12 +271,12 @@ def process_paragraph(paragraphs, input_unknown_words, known_words, unknown_word
     entities = perform_ner("\n\n".join(paragraphs), nlp_target)
     translated_sentences = batch_translate(sentences, state['target_language'], state['native_language'])
     threshold = frequency_thresholds[state['level']]
-    
+
     spanish_words = [word['text'].lower() for word in words]
     english_words = batch_translate([word['text'] for word in words], state['target_language'], state['native_language'])
     cognates = find_cognates(spanish_words, english_words, cognet_sp_en)
     cognate_pairs = {sp: en for sp, en in cognates}
-    
+
     for word in words:
         word_text = word['text'].lower()
         state['original_word_mapping'][word_text] = word['text']
@@ -281,7 +287,7 @@ def process_paragraph(paragraphs, input_unknown_words, known_words, unknown_word
         else:
             state['final_unknown_words_dict'][word_text].add(word['lemma'])
             current_paragraph_unknown_words[word_text].add(word['lemma'])
-    
+
     for word in words:
         word_text = word['text'].lower()
         if word_text in current_paragraph_unknown_words:
@@ -364,7 +370,7 @@ def start_processing(native_language, target_language, level, text):
     state['native_language'] = native_language
     state['target_language'] = target_language
     state['level'] = level
-    
+
     state['paragraphs'] = text.strip().split('\n')
     state['current_paragraph_index'] = 0
 
@@ -389,6 +395,7 @@ def process_next_paragraph(input_unknown_words):
         state['all_cognate_pairs'].update(cognate_pairs)
         output = display_output(paragraph, final_unknown_words)
         state['current_paragraph_index'] += 1
+        print(f"Paragraph {state['current_paragraph_index']} processed with input unknown words: {input_unknown_words}")  # Debugging: Print paragraph processing status
         return output
     else:
         summary = generate_summary()
@@ -426,7 +433,7 @@ def display_output(paragraph, final_unknown_words):
     context_output = "<br>".join(context_sentences)
     original_paragraphs = paragraph.split(' ')
     highlighted_original_para = highlighted_paragraph(" ".join(original_paragraphs), final_unknown_words, state['validated_translations'])
-    
+
     return f"<p><b style='font-size: larger;'>Highlighted Text:</b></p><p>{highlighted_original_para}</p><hr><p><b style='font-size: larger;'>Predicted Unknown Words In Context:</b></p><p>{context_output}</p>"
 
 def generate_summary():
@@ -443,7 +450,7 @@ def generate_summary():
 
 def next_paragraph(input_unknown_words):
     if isinstance(input_unknown_words, str):
-        input_unknown_words = input_unknown_words.split()  
+        input_unknown_words = input_unknown_words.split()
     return process_next_paragraph(input_unknown_words)
 
 def reset_interface():

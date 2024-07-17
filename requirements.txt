@@ -182,7 +182,7 @@ mglearn==0.2.0
 mistune @ file:///Users/ec2-user/ci_py311/mistune_1678317272228/work
 ml-dtypes==0.2.0
 more-itertools @ file:///tmp/build/80754af9/more-itertools_1637733554872/work
-mpmath==1.2.1
+mpmath>=1.3.0
 msgpack @ file:///Users/ec2-user/ci_py311/msgpack-python_1678318264150/work
 multidict @ file:///Users/ec2-user/ci_py311/multidict_1678318765630/work
 multipledispatch @ file:///Users/ec2-user/ci_py311/multipledispatch_1678392901644/work
@@ -220,7 +220,7 @@ patsy==0.5.3
 pep8==1.7.1
 pexpect @ file:///tmp/build/80754af9/pexpect_1605563209008/work
 pickleshare @ file:///tmp/build/80754af9/pickleshare_1606932040724/work
-Pillow==9.4.0
+Pillow>=10.3.0
 pkginfo @ file:///private/var/folders/sy/f16zz6x50xz3113nwtb9bvq00000gp/T/abs_d976p03z5u/croot/pkginfo_1679431175529/work
 platformdirs @ file:///Users/ec2-user/ci_py311/platformdirs_1678315988118/work
 plotly @ file:///Users/ec2-user/ci_py311/plotly_1678382250051/work
@@ -236,7 +236,7 @@ psutil @ file:///Users/ec2-user/ci_py311_2/psutil_1679337242143/work
 ptyprocess @ file:///tmp/build/80754af9/ptyprocess_1609355006118/work/dist/ptyprocess-0.7.0-py2.py3-none-any.whl
 pure-eval @ file:///opt/conda/conda-bld/pure_eval_1646925070566/work
 py-cpuinfo @ file:///Users/ktietz/demo/mc3/conda-bld/py-cpuinfo_1629480366017/work
-pyarrow==11.0.0
+pyarrow>=14.0.1
 pyasn1 @ file:///Users/ktietz/demo/mc3/conda-bld/pyasn1_1629708007385/work
 pyasn1-modules==0.2.8
 pycodestyle @ file:///Users/ec2-user/ci_py311/pycodestyle_1678324331308/work
